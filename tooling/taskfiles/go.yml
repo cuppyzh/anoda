@@ -1,0 +1,83 @@
+# Per-service tasks for Go services. Included from the root Taskfile with `dir:` set to the service.
+# Every task is skipped (reported "up to date") while the service has no go.mod yet, via `status:`.
+# Rules enforced here are defined in docs/contracts/02-go-backend.md and 04-testing.md.
+version: "3"
+
+vars:
+  SERVICE: '{{.SERVICE | default "unknown"}}'
+  ROOT:
+    sh: git rev-parse --show-toplevel
+  GOLANGCI_CONFIG: "{{.ROOT}}/tooling/go/.golangci.yml"
+  COVERAGE_MIN: "80"
+  IMAGE: "anoda/{{.SERVICE}}"
+  GIT_SHA:
+    sh: git rev-parse --short HEAD
+
+tasks:
+  fmt:
+    desc: gofmt + goimports (writes)
+    status: [test ! -f go.mod]
+    cmds:
+      - gofmt -w .
+      - go run golang.org/x/tools/cmd/goimports@latest -w -local anoda .
+
+  fmt:check:
+    desc: Fail if any file is not gofmt'd
+    status: [test ! -f go.mod]
+    cmds:
+      - |
+        out="$(gofmt -l .)"
+        if [ -n "$out" ]; then echo "unformatted files:"; echo "$out"; exit 1; fi
+
+  lint:
+    desc: golangci-lint with the shared config
+    status: [test ! -f go.mod]
+    cmds:
+      - go vet ./...
+      - golangci-lint run --config "{{.GOLANGCI_CONFIG}}" ./...
+
+  test:
+    desc: Unit tests with -race and per-package coverage gate
+    status: [test ! -f go.mod]
+    cmds:
+      - go test -race -shuffle=on -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+      - bash "{{.ROOT}}/tooling/go/coverage-gate.sh" coverage.out {{.COVERAGE_MIN}} .coverage-exempt
+
+  cover:
+    desc: Open HTML coverage report
+    preconditions:
+      - sh: test -f coverage.out
+        msg: "run 'task {{.SERVICE}}:test' first"
+    cmds:
+      - go tool cover -html=coverage.out -o coverage.html
+      - echo "coverage.html written"
+
+  vuln:
+    desc: govulncheck against the module
+    status: [test ! -f go.mod]
+    cmds:
+      - govulncheck ./...
+
+  generate:
+    desc: Run code generators (sqlc, oapi-codegen) via go generate
+    status: [test ! -f go.mod]
+    cmds:
+      - go generate ./...
+
+  build:
+    desc: Build static binary to bin/
+    status: [test ! -f go.mod]
+    cmds:
+      - CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version={{.GIT_SHA}}" -o bin/server ./cmd/server
+
+  docker:
+    desc: Build container image tagged with git SHA
+    status: [test ! -f Dockerfile]
+    cmds:
+      - docker build -t "{{.IMAGE}}:{{.GIT_SHA}}" -t "{{.IMAGE}}:latest" .
+
+  run:
+    desc: Run the service locally (reads .env if present)
+    status: [test ! -f go.mod]
+    cmds:
+      - go run ./cmd/server

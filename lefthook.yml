@@ -1,0 +1,38 @@
+# Git hooks. Install with `lefthook install` (done by `task setup`).
+# Bypassing hooks (--no-verify) is forbidden by CLAUDE.md; CI runs the same checks anyway.
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  commands:
+    secrets:
+      run: gitleaks git --pre-commit --staged --redact --no-banner
+    go-fmt:
+      glob: "*.go"
+      run: |
+        out="$(gofmt -l {staged_files})"
+        if [ -n "$out" ]; then echo "unformatted (run: task fmt):"; echo "$out"; exit 1; fi
+    prettier:
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,css,md,yml,yaml}"
+      exclude: "pnpm-lock.yaml"
+      run: npx --yes prettier --check {staged_files}
+    markdownlint:
+      glob: "*.md"
+      run: npx --yes markdownlint-cli2 {staged_files}
+    eslint:
+      glob: "services/*.ui.anoda.com/**/*.{ts,tsx}"
+      run: |
+        for f in {staged_files}; do
+          svc="$(echo "$f" | cut -d/ -f1-2)"
+          if [ -f "$svc/package.json" ]; then (cd "$svc" && pnpm exec eslint --max-warnings=0 "${f#$svc/}") || exit 1; fi
+        done
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx --yes --package @commitlint/cli --package @commitlint/config-conventional commitlint --edit {1}
+
+pre-push:
+  commands:
+    check:
+      run: task lint test

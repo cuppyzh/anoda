@@ -1,0 +1,48 @@
+# --- Secrets & local config ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# --- Go ---
+bin/
+dist/
+coverage.out
+coverage.html
+*.test
+*.prof
+vendor/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+.pnpm-store/
+
+# --- Tooling caches ---
+.task/
+.golangci-cache/
+.eslintcache
+.cache/
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# --- Docker ---
+docker-compose.override.yml
+
+# --- Logs ---
+*.log
+logs/

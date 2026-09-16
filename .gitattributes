@@ -1,0 +1,22 @@
+# Normalize line endings to LF in the repo; checkout as LF everywhere.
+* text=auto eol=lf
+
+# PowerShell scripts run on Windows; keep CRLF so signatures and editors behave.
+*.ps1 text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+
+# Generated code: collapse in diffs
+**/gen/** linguist-generated=true
+**/*.gen.go linguist-generated=true
+**/*_gen.ts linguist-generated=true
+pnpm-lock.yaml linguist-generated=true
+go.sum linguist-generated=true

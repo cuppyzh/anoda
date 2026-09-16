@@ -1,0 +1,139 @@
+# Root task runner. https://taskfile.dev
+# `task check` is THE gate: identical locally, in git hooks, and in CI.
+#
+# Per-service tasks come from tooling/taskfiles/{go,node}.yml via `includes`.
+# Register every new service here (see services/README.md).
+version: "3"
+
+vars:
+  GO_SERVICES: services/api.anoda.com services/yomi.api.anoda.com
+  NODE_SERVICES: services/portal.ui.anoda.com services/yomi.ui.anoda.com
+
+includes:
+  api:
+    taskfile: ./tooling/taskfiles/go.yml
+    dir: ./services/api.anoda.com
+    vars: { SERVICE: api.anoda.com }
+  yomi-api:
+    taskfile: ./tooling/taskfiles/go.yml
+    dir: ./services/yomi.api.anoda.com
+    vars: { SERVICE: yomi.api.anoda.com }
+  portal-ui:
+    taskfile: ./tooling/taskfiles/node.yml
+    dir: ./services/portal.ui.anoda.com
+    vars: { SERVICE: portal.ui.anoda.com }
+  yomi-ui:
+    taskfile: ./tooling/taskfiles/node.yml
+    dir: ./services/yomi.ui.anoda.com
+    vars: { SERVICE: yomi.ui.anoda.com }
+
+tasks:
+  default:
+    cmds: [task --list]
+    silent: true
+
+  setup:
+    desc: Install/verify toolchain and git hooks
+    cmds:
+      - cmd: pwsh -NoProfile -File scripts/bootstrap.ps1
+        platforms: [windows]
+      - cmd: bash scripts/bootstrap.sh
+        platforms: [linux, darwin]
+      - lefthook install
+
+  # ---------- Aggregate gates ----------
+  fmt:
+    desc: Format all code
+    cmds:
+      - task: api:fmt
+      - task: yomi-api:fmt
+      - task: portal-ui:fmt
+      - task: yomi-ui:fmt
+
+  lint:
+    desc: Lint all code, docs, workflows
+    cmds:
+      - task: lint:docs
+      - task: lint:design
+      - task: api:lint
+      - task: yomi-api:lint
+      - task: portal-ui:lint
+      - task: yomi-ui:lint
+
+  test:
+    desc: Run all unit tests with coverage gates
+    cmds:
+      - task: api:test
+      - task: yomi-api:test
+      - task: portal-ui:test
+      - task: yomi-ui:test
+
+  security:
+    desc: Secret scan + dependency vulnerability scans
+    cmds:
+      - task: security:secrets
+      - task: api:vuln
+      - task: yomi-api:vuln
+      - task: portal-ui:audit
+      - task: yomi-ui:audit
+
+  check:
+    desc: "THE gate: fmt-check + lint + test + security"
+    cmds:
+      - task: fmt:check
+      - task: lint
+      - task: test
+      - task: security
+
+  fmt:check:
+    desc: Verify formatting without writing
+    cmds:
+      - task: api:fmt:check
+      - task: yomi-api:fmt:check
+      - task: portal-ui:fmt:check
+      - task: yomi-ui:fmt:check
+
+  # ---------- Cross-cutting ----------
+  lint:docs:
+    desc: markdownlint + actionlint
+    cmds:
+      - npx --yes markdownlint-cli2 "**/*.md" "#node_modules" "#**/node_modules/**" "#**/.next/**"
+      - cmd: actionlint
+        ignore_error: false
+
+  lint:design:
+    desc: Validate design tokens (contrast, schema) and type-check the Tailwind preset
+    cmds:
+      - node tooling/design/check-contrast.mjs
+
+  security:secrets:
+    desc: Scan git history (all commits) for secrets
+    cmds:
+      - gitleaks git . --redact --no-banner
+
+  # ---------- Local environment ----------
+  up:
+    desc: Start local stack (Postgres + services) with Docker Compose
+    cmds:
+      - docker compose up -d --build
+
+  down:
+    desc: Stop local stack
+    cmds:
+      - docker compose down
+
+  down:clean:
+    desc: Stop local stack and delete volumes (DESTROYS LOCAL DATA)
+    prompt: This deletes all local database data. Continue?
+    cmds:
+      - docker compose down -v
+
+  logs:
+    desc: Tail logs from local stack
+    cmds:
+      - docker compose logs -f --tail=200
+
+  ps:
+    desc: Show local stack status
+    cmds:
+      - docker compose ps

@@ -1,0 +1,11 @@
+{
+  "$comment": "Type-checks the Tailwind preset in isolation: `npx tsc --noEmit -p tooling/design`. Requires tailwindcss + tailwindcss-animate installed (any UI app's node_modules, or `npm i --no-save` in this folder).",
+  "extends": "../node/tsconfig.base.json",
+  "compilerOptions": {
+    "plugins": [],
+    "paths": {},
+    "incremental": false,
+    "types": ["node"]
+  },
+  "include": ["tailwind.preset.ts", "tokens.json"]
+}

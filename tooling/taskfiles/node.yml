@@ -1,0 +1,86 @@
+# Per-service tasks for Next.js services. Included from the root Taskfile with `dir:` set to the service.
+# Every task is skipped (reported "up to date") while the service has no package.json yet, via `status:`.
+# Rules enforced here are defined in docs/contracts/03-nextjs-frontend.md, 04-testing.md, 12-design-ui-ux.md.
+version: "3"
+
+vars:
+  SERVICE: '{{.SERVICE | default "unknown"}}'
+  ROOT:
+    sh: git rev-parse --show-toplevel
+  IMAGE: "anoda/{{.SERVICE}}"
+  GIT_SHA:
+    sh: git rev-parse --short HEAD
+
+tasks:
+  install:
+    desc: Install dependencies with the lockfile (frozen)
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm install --frozen-lockfile
+
+  fmt:
+    desc: prettier (writes)
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm exec prettier --write .
+
+  fmt:check:
+    desc: Fail if any file is not prettier-formatted
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm exec prettier --check .
+
+  typecheck:
+    desc: tsc --noEmit with strict settings
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm exec tsc --noEmit
+
+  lint:
+    desc: typecheck + eslint (a11y, tailwind, import rules)
+    status: [test ! -f package.json]
+    cmds:
+      - task: typecheck
+      - pnpm exec eslint . --max-warnings=0
+
+  test:
+    desc: Vitest with coverage thresholds (see tooling/node/vitest.config.base.ts)
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm exec vitest run --coverage
+
+  test:watch:
+    desc: Vitest in watch mode
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm exec vitest
+
+  audit:
+    desc: Dependency vulnerability audit (fails on high/critical)
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm audit --audit-level=high
+
+  build:
+    desc: next build (standalone output)
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm exec next build
+
+  dev:
+    desc: next dev
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm exec next dev
+
+  docker:
+    desc: Build container image tagged with git SHA
+    status: [test ! -f Dockerfile]
+    cmds:
+      - docker build -t "{{.IMAGE}}:{{.GIT_SHA}}" -t "{{.IMAGE}}:latest" .
+
+  shadcn:add:
+    desc: "Add a shadcn/ui component: task <svc>:shadcn:add -- button"
+    status: [test ! -f package.json]
+    cmds:
+      - pnpm dlx shadcn@latest add {{.CLI_ARGS}}

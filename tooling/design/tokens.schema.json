@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "anoda design tokens",
+  "type": "object",
+  "required": ["color", "contrast", "radius", "fontFamily", "fontSize", "boxShadow", "motion", "zIndex", "screens", "container"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "$comment": { "type": "string" },
+    "color": {
+      "type": "object",
+      "required": ["light", "dark"],
+      "additionalProperties": false,
+      "properties": {
+        "light": { "$ref": "#/$defs/colorTheme" },
+        "dark": { "$ref": "#/$defs/colorTheme" }
+      }
+    },
+    "contrast": {
+      "type": "object",
+      "required": ["text", "ui"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "text": { "$ref": "#/$defs/pairs" },
+        "ui": { "$ref": "#/$defs/pairs" }
+      }
+    },
+    "radius": { "type": "object", "additionalProperties": { "type": "string" } },
+    "fontFamily": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+    "fontSize": { "type": "object" },
+    "boxShadow": { "type": "object", "additionalProperties": { "type": "string" } },
+    "motion": { "type": "object" },
+    "zIndex": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[0-9]+$" } },
+    "screens": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[0-9]+px$" } },
+    "container": { "type": "object" }
+  },
+  "$defs": {
+    "hsl": {
+      "type": "string",
+      "description": "HSL triplet without hsl(): 'H S% L%'",
+      "pattern": "^([0-9]{1,3}(\\.[0-9]+)?) ([0-9]{1,3}(\\.[0-9]+)?)% ([0-9]{1,3}(\\.[0-9]+)?)%$"
+    },
+    "colorTheme": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z]+(-[a-z]+)*$" },
+      "additionalProperties": { "$ref": "#/$defs/hsl" }
+    },
+    "pairs": {
+      "type": "array",
+      "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }
+    }
+  }
+}

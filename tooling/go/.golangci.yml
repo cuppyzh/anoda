@@ -1,0 +1,308 @@
+# Shared golangci-lint (v2) configuration for every Go service.
+# Invoked by tooling/taskfiles/go.yml and CI with `--config <root>/tooling/go/.golangci.yml`.
+# Rules mirror docs/contracts/02-go-backend.md. Do not weaken without an ADR.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - anoda
+
+linters:
+  default: none
+  enable:
+    # correctness
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - errorlint
+    - wrapcheck
+    - nilerr
+    - nilnil
+    - bodyclose
+    - noctx
+    - containedctx
+    - sqlclosecheck
+    - rowserrcheck
+    - exhaustive
+    - copyloopvar
+    - durationcheck
+    - makezero
+    - predeclared
+    - unconvert
+    - unparam
+    - wastedassign
+    # security
+    - gosec
+    # style / readability
+    - revive
+    - gocritic
+    - gocyclo
+    - funlen
+    - lll
+    - godot
+    - misspell
+    - nakedret
+    - nolintlint
+    - forbidigo
+    - depguard
+    - interfacebloat
+    - gochecknoglobals
+    - gochecknoinits
+    - sloglint
+    - perfsprint
+    - prealloc
+    # tests
+    - testifylint
+    - thelper
+    - tparallel
+    - paralleltest
+    - usetesting
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+      ignore-package-globs:
+        - anoda/*/internal/domain*
+
+    exhaustive:
+      default-signifies-exhaustive: false
+      check:
+        - switch
+        - map
+
+    gocyclo:
+      min-complexity: 15
+
+    funlen:
+      lines: 60
+      statements: 40
+      ignore-comments: true
+
+    lll:
+      line-length: 120
+      tab-width: 4
+
+    godot:
+      scope: toplevel
+      capital: true
+
+    nakedret:
+      max-func-lines: 5
+
+    interfacebloat:
+      max: 5
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+    gosec:
+      excludes: []
+      config:
+        G112:
+          # ReadHeaderTimeout must be set on http.Server
+          enabled: true
+
+    revive:
+      severity: error
+      enable-all-rules: false
+      rules:
+        - name: exported
+          arguments: ["checkPrivateReceivers", "sayRepetitiveInsteadOfStutters"]
+        - name: package-comments
+        - name: var-naming
+        - name: receiver-naming
+        - name: error-strings
+        - name: error-naming
+        - name: errorf
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: early-return
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unused-receiver
+        - name: unexported-return
+        - name: if-return
+        - name: increment-decrement
+        - name: range
+        - name: time-naming
+        - name: blank-imports
+        - name: dot-imports
+        - name: empty-block
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: bare-return
+        - name: defer
+        - name: import-shadowing
+        - name: bool-literal-in-expr
+        - name: constant-logical-expr
+        - name: struct-tag
+        - name: deep-exit
+        - name: argument-limit
+          arguments: [6]
+        - name: function-result-limit
+          arguments: [3]
+        - name: max-public-structs
+          arguments: [10]
+        - name: cognitive-complexity
+          arguments: [20]
+
+    gocritic:
+      enabled-tags: [diagnostic, style, performance]
+      disabled-checks:
+        - hugeParam        # too noisy for small services
+        - paramTypeCombine # style preference
+        - unnamedResult
+
+    sloglint:
+      no-mixed-args: true
+      kv-only: true
+      attr-only: false
+      no-global: all
+      context: scope
+      static-msg: true
+      key-naming-case: snake
+      forbidden-keys: [time, level, msg, source, password, token, secret, authorization, email]
+
+    testifylint:
+      enable-all: true
+
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: use log/slog, not fmt.Print*
+        - pattern: ^log\.(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln)$
+          msg: use log/slog; log.Fatal only in cmd/server/main.go
+        - pattern: ^os\.Getenv$
+          msg: read env only in internal/config
+        - pattern: ^os\.LookupEnv$
+          msg: read env only in internal/config
+        - pattern: ^panic$
+          msg: do not panic in library code
+        - pattern: ^time\.Sleep$
+          msg: use a context-aware timer or an injected clock
+        - pattern: ^ioutil\.
+          msg: io/ioutil is deprecated
+
+    depguard:
+      rules:
+        banned-everywhere:
+          list-mode: lax
+          deny:
+            - pkg: gorm.io
+              desc: ORMs are banned (ADR 0002); use pgx + sqlc
+            - pkg: github.com/jinzhu/gorm
+              desc: ORMs are banned (ADR 0002)
+            - pkg: entgo.io
+              desc: ORMs are banned (ADR 0002)
+            - pkg: github.com/uptrace/bun
+              desc: ORMs are banned (ADR 0002)
+            - pkg: github.com/gin-gonic
+              desc: frameworks are banned; use net/http + chi
+            - pkg: github.com/labstack/echo
+              desc: frameworks are banned; use net/http + chi
+            - pkg: github.com/gofiber
+              desc: frameworks are banned; use net/http + chi
+            - pkg: github.com/sirupsen/logrus
+              desc: use log/slog
+            - pkg: go.uber.org/zap
+              desc: use log/slog
+            - pkg: github.com/rs/zerolog
+              desc: use log/slog
+            - pkg: github.com/pkg/errors
+              desc: use errors + fmt.Errorf %w
+            - pkg: github.com/spf13/viper
+              desc: config is env-only via internal/config
+            - pkg: github.com/lib/pq
+              desc: use github.com/jackc/pgx/v5
+            - pkg: github.com/dgrijalva/jwt-go
+              desc: unmaintained; use github.com/coreos/go-oidc/v3 or golang.org/x/oauth2
+            - pkg: io/ioutil
+              desc: deprecated; use io and os
+        domain-is-pure:
+          list-mode: strict
+          files:
+            - "**/internal/domain/**"
+          allow:
+            - $gostd
+            - github.com/google/uuid
+        app-depends-on-domain-and-ports-only:
+          list-mode: lax
+          files:
+            - "**/internal/app/**"
+          deny:
+            - pkg: anoda/*/internal/adapters
+              desc: app must not import adapters (dependency inversion)
+            - pkg: github.com/jackc/pgx
+              desc: database drivers belong in adapters/postgres
+            - pkg: github.com/go-chi/chi
+              desc: HTTP belongs in adapters/http
+            - pkg: net/http
+              desc: HTTP belongs in adapters/http
+        llm-sdks-only-in-llm-adapters:
+          list-mode: lax
+          files:
+            - "!**/internal/adapters/llm/**"
+          deny:
+            - pkg: github.com/anthropics/anthropic-sdk-go
+              desc: LLM SDKs only in internal/adapters/llm (10-ai-integration.md)
+            - pkg: github.com/openai/openai-go
+              desc: LLM SDKs only in internal/adapters/llm (10-ai-integration.md)
+            - pkg: github.com/sashabaranov/go-openai
+              desc: LLM SDKs only in internal/adapters/llm (10-ai-integration.md)
+
+  exclusions:
+    generated: strict
+    warn-unused: false
+    paths:
+      - internal/adapters/postgres/gen
+      - internal/adapters/http/gen
+    rules:
+      # main is the only place allowed to log.Fatal / exit
+      - path: cmd/server/main\.go
+        linters: [forbidigo, gochecknoglobals]
+      # config is the only place allowed to read env
+      - path: internal/config/
+        linters: [forbidigo]
+        text: env only in internal/config
+      # tests may be long, may use globals for fixtures, don't need doc comments
+      - path: _test\.go
+        linters: [funlen, gochecknoglobals, lll, wrapcheck, revive, gosec, forbidigo, dupl]
+      - path: _test\.go
+        text: "exported"
+      # generated code is excluded above; extra safety for any generated file name pattern
+      - path: \.gen\.go$
+        linters: [revive, lll, godot, funlen, gocyclo, gochecknoglobals]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

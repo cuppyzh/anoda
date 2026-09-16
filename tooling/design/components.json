@@ -1,0 +1,22 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "_comment": "Shared shadcn/ui config. Copy to each UI app root as components.json. Components land in components/ui and are not edited in place (12-design-ui-ux.md).",
+  "style": "new-york",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "styles/globals.css",
+    "baseColor": "zinc",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "aliases": {
+    "components": "@/components",
+    "ui": "@/components/ui",
+    "utils": "@/lib/cn",
+    "lib": "@/lib",
+    "hooks": "@/features"
+  },
+  "iconLibrary": "lucide"
+}

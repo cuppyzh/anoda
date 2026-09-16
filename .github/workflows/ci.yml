@@ -1,0 +1,236 @@
+# CI mirrors `task check`. Path filters keep stack jobs from running when unrelated files change.
+# Every job that a service depends on must also exist in Taskfile.yml so local == CI.
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10"
+
+jobs:
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      node: ${{ steps.filter.outputs.node }}
+      docker: ${{ steps.filter.outputs.docker }}
+      docs: ${{ steps.filter.outputs.docs }}
+      go_services: ${{ steps.filter.outputs.go_files }}
+      node_services: ${{ steps.filter.outputs.node_files }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          list-files: shell
+          filters: |
+            go:
+              - 'services/*.api.anoda.com/**'
+              - 'tooling/go/**'
+              - 'tooling/taskfiles/go.yml'
+            node:
+              - 'services/*.ui.anoda.com/**'
+              - 'tooling/node/**'
+              - 'tooling/design/**'
+              - 'tooling/taskfiles/node.yml'
+            docker:
+              - 'services/**/Dockerfile'
+              - 'tooling/docker/**'
+              - 'docker-compose.yml'
+            docs:
+              - '**/*.md'
+              - 'docs/**'
+              - '.github/**'
+              - 'tooling/design/**'
+              - '.markdownlint.yaml'
+
+  secrets:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docs:
+    name: docs, workflows, design tokens
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: markdownlint
+        run: npx --yes markdownlint-cli2 "**/*.md" "#node_modules" "#**/node_modules/**"
+      - name: actionlint
+        uses: raven-actions/actionlint@v2
+      - name: design tokens (schema + WCAG contrast)
+        run: node tooling/design/check-contrast.mjs
+      - name: commitlint (PR commits)
+        if: github.event_name == 'pull_request'
+        run: |
+          npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
+            commitlint --from "${{ github.event.pull_request.base.sha }}" --to "${{ github.event.pull_request.head.sha }}" --verbose
+
+  go:
+    name: go / ${{ matrix.service }}
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api.anoda.com, yomi.api.anoda.com]
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: has go.mod?
+        id: mod
+        run: |
+          if [ -f go.mod ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; echo "no go.mod, skipping"; fi
+      - uses: actions/setup-go@v5
+        if: steps.mod.outputs.present == 'true'
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+      - name: gofmt check
+        if: steps.mod.outputs.present == 'true'
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        if: steps.mod.outputs.present == 'true'
+        run: go vet ./...
+      - name: golangci-lint
+        if: steps.mod.outputs.present == 'true'
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: services/${{ matrix.service }}
+          args: --config ${{ github.workspace }}/tooling/go/.golangci.yml
+      - name: unit tests (-race) + coverage gate
+        if: steps.mod.outputs.present == 'true'
+        run: |
+          go test -race -shuffle=on -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+          bash "${{ github.workspace }}/tooling/go/coverage-gate.sh" coverage.out 80 .coverage-exempt
+      - name: govulncheck
+        if: steps.mod.outputs.present == 'true'
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: build
+        if: steps.mod.outputs.present == 'true'
+        run: CGO_ENABLED=0 go build -trimpath ./...
+
+  node:
+    name: node / ${{ matrix.service }}
+    needs: changes
+    if: needs.changes.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [portal.ui.anoda.com, yomi.ui.anoda.com]
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: has package.json?
+        id: pkg
+        run: |
+          if [ -f package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; echo "no package.json, skipping"; fi
+      - uses: pnpm/action-setup@v4
+        if: steps.pkg.outputs.present == 'true'
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        if: steps.pkg.outputs.present == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: services/${{ matrix.service }}/pnpm-lock.yaml
+      - name: install (frozen lockfile)
+        if: steps.pkg.outputs.present == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: prettier check
+        if: steps.pkg.outputs.present == 'true'
+        run: pnpm exec prettier --check .
+      - name: typecheck
+        if: steps.pkg.outputs.present == 'true'
+        run: pnpm exec tsc --noEmit
+      - name: eslint (a11y, tailwind, imports)
+        if: steps.pkg.outputs.present == 'true'
+        run: pnpm exec eslint . --max-warnings=0
+      - name: unit tests + coverage thresholds
+        if: steps.pkg.outputs.present == 'true'
+        run: pnpm exec vitest run --coverage
+      - name: audit (high+)
+        if: steps.pkg.outputs.present == 'true'
+        run: pnpm audit --audit-level=high
+      - name: build
+        if: steps.pkg.outputs.present == 'true'
+        run: pnpm exec next build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  docker:
+    name: docker / ${{ matrix.service }}
+    needs: [changes, go, node]
+    if: |
+      always() && needs.changes.outputs.docker == 'true' &&
+      needs.go.result != 'failure' && needs.node.result != 'failure'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api.anoda.com, yomi.api.anoda.com, portal.ui.anoda.com, yomi.ui.anoda.com]
+    steps:
+      - uses: actions/checkout@v4
+      - name: has Dockerfile?
+        id: df
+        run: |
+          if [ -f "services/${{ matrix.service }}/Dockerfile" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; echo "no Dockerfile, skipping"; fi
+      - uses: docker/setup-buildx-action@v3
+        if: steps.df.outputs.present == 'true'
+      - name: build image
+        if: steps.df.outputs.present == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: services/${{ matrix.service }}
+          push: false
+          load: true
+          tags: anoda/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: trivy image scan (HIGH, CRITICAL)
+        if: steps.df.outputs.present == 'true'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: anoda/${{ matrix.service }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: compose config validates
+        if: matrix.service == 'api.anoda.com'
+        run: cp .env.example .env && docker compose config -q

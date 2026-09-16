@@ -1,0 +1,77 @@
+# Local development stack. `task up` / `task down`.
+# Rules: docs/contracts/09-containers-and-deploy.md
+# Services are commented out until they have a Dockerfile; uncomment and adjust when a service is scaffolded.
+# Secrets and ports come from .env (copy .env.example). Never commit .env.
+
+name: anoda
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-anoda}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+
+  # ---- Go API template. Copy per service. ----
+  # api:
+  #   build:
+  #     context: ./services/api.anoda.com
+  #   image: anoda/api.anoda.com:local
+  #   restart: unless-stopped
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     APP_ENV: local
+  #     HTTP_ADDR: ":8080"
+  #     LOG_LEVEL: ${LOG_LEVEL:-debug}
+  #     DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-anoda}?sslmode=disable
+  #     ALLOWED_EMAILS: ${ALLOWED_EMAILS}
+  #     GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+  #   ports:
+  #     - "${API_PORT:-8080}:8080"
+  #   healthcheck:
+  #     test: ["CMD", "/server", "healthcheck"]   # binary subcommand; distroless has no curl/wget
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 5
+  #   read_only: true
+  #   tmpfs: [/tmp]
+  #   security_opt: [no-new-privileges:true]
+  #   cap_drop: [ALL]
+
+  # ---- Next.js UI template. Copy per service. ----
+  # portal-ui:
+  #   build:
+  #     context: ./services/portal.ui.anoda.com
+  #   image: anoda/portal.ui.anoda.com:local
+  #   restart: unless-stopped
+  #   depends_on: [api]
+  #   environment:
+  #     NODE_ENV: production
+  #     PORT: "3000"
+  #     API_BASE_URL: http://api:8080      # server-side only; never NEXT_PUBLIC_
+  #     SESSION_SECRET: ${SESSION_SECRET}
+  #   ports:
+  #     - "${PORTAL_UI_PORT:-3000}:3000"
+  #   read_only: true
+  #   tmpfs: [/tmp, /app/.next/cache]
+  #   security_opt: [no-new-privileges:true]
+  #   cap_drop: [ALL]
+
+volumes:
+  postgres-data:
